@@ -5,7 +5,7 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 _UNCHANGED = object() # Unique Sentinel
 
-class SMAVectorBacktester():
+class SMAVectorBacktester(object):
     '''
     Class for vectorised backtesting of a SMA based trading strategy
     
@@ -18,6 +18,7 @@ class SMAVectorBacktester():
         self.end = end
         self.results = None
         self.data = self.get_data()
+        print(self.data)
 
     def get_data(self):
         '''
@@ -29,7 +30,8 @@ class SMAVectorBacktester():
         raw['return'] = np.log(raw['price']/raw['price'].shift(1))
         raw['SMA1'] = raw['price'].rolling(self.SMA1).mean()
         raw['SMA2'] = raw['price'].rolling(self.SMA2).mean()
-        return raw
+        self.data = raw
+        return self.data
         
     
     def set_parameters(self,SMA1 = _UNCHANGED, SMA2 = _UNCHANGED):
@@ -93,4 +95,20 @@ class SMAVectorBacktester():
 
         opt = brute(self.update_and_run, grid, finish = None)
         return f"opt: {opt}, grossperf: {-self.update_and_run(opt)}"
+    
+    def max_drawdown(self): # Implementing Max Drawdown with Sliding Window
+        l,r = 0,1
+        max_dd = 0
+        arr = self.results['cstrategy']
+        while r < len(arr):
+            if arr[l] > arr[r]:
+                dd = arr[l] - arr[r]
+                max_dd = max(max_dd,dd)
+            else:
+                l = r
+            r += 1
+        print(f'Max Drawdown:{max_dd}')
+        return max_dd
+    
 
+    
