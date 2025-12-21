@@ -3,7 +3,7 @@
 This repo contains a series of backtest classes (via vectorisation) implementing three of the most widely used trading strategies:
 1. Simple Moving Average
 2. Mean Reversion 
-3. Momentum
+3. Momentum (Time series)
 
 ## General Design for Vectorised Backtest Classes
 This section describes the general backtesting workflow used across the classes. When .get_data() is called, price data is downloaded from the yfinance API for the specified start and end dates and stored in a pandas DataFrame. We then compute a *return* column using log returns: return = log(Close_t/Close_t-1) (We work with log returns instead of simple returns thoughout the backtest). Depending on the strategy, we generate a daily *postion* signal that represents the exposure helo over the period (+1 for long, -1 for short and 0 for no position). To avoid look-ahead bias, the *position* series is shifted by one day so that today's trade uses yesterday's signal. Strategy returns are then computed as *strategy* = *position.shift(1) * return*. To convert cumulative log returns into cumulative simple returns, we take the exponent of the cumulative sum of *return* and *strategy*. *creturns* = *exp(return.cumsum())* and *cstrategy* = exp(strategy.cumsum())* The 'buy and hold' performance (total return of the asset) is given by the last value of the *creturns* series *df['creturns'].iloc(-1)* while the strategy's return is given by the last value of the *cstrategy* series *df['cstrategy].iloc(-1)*.
