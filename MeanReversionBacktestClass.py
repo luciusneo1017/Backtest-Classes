@@ -7,7 +7,7 @@ class MRVectorBacktest():
     '''
     Class for backtest of a mean reversion trading strategy
     '''
-    def __init__(self,symbol,start,end,ann_factor=252):
+    def __init__(self,symbol:str,window:int,entry:int,exit:int,start:str,end:str,ann_factor:int=252):
         self.symbol = symbol
         self.start = start 
         self.end = end 
@@ -15,17 +15,22 @@ class MRVectorBacktest():
         self.data = self.get_data()
         self.pos = None
         self.ann = ann_factor
-        self.window = None
-        self.entry = None
-        self.exit = None
+        self.window = window
+        self.entry = entry
+        self.exit = exit
         
     def get_data(self):
         '''
         Retrieves and prepares data in a DataFrame Object
         For now, data is retrieved from yfinance
         '''
-        raw = yf.download(self.symbol, start = self.start, end = self.end)
-        raw = raw.loc[:,('Close', self.symbol)].rename('price').to_frame()
+        raw = yf.download(self.symbol, start = self.start, end = self.end, auto_adjust=True)
+        if isinstance(raw.columns, pd.MultiIndex):
+            price = raw["Close"][self.symbol]
+        else:
+            price = raw["Close"]
+
+        raw = price.rename("price").to_frame()
         raw['return'] = np.log(raw['price']/raw['price'].shift(1))
         return raw
     
@@ -33,24 +38,27 @@ class MRVectorBacktest():
         '''
         Building a position series where elements in {-1,0,1}, shifted(1)
         '''
-        self.window = window
-        self.entry = entry
-        self.exit = exit
+
+        if window <= 1:
+            raise ValueError("window must be > 1")
+        if entry <= 0 or exit < 0:
+            raise ValueError("entry must be > 0 and exit must be >= 0")
+        if entry <= exit:
+            raise ValueError("entry should be > exit")
+
+        
         price = self.data['price'] # price is a pd.Series
         sma = price.rolling(window).mean()
         dist = price - sma
         sigma = dist.rolling(window).std()
         mu = dist.rolling(window).mean()
         eps = 1e-12
-        z = (dist - mu) / sigma.replace(0,eps) # pd.Series of z score
-        print(f'z:{z}')
-        print(type(z))
+        z = dist / sigma.replace(0,np.nan) # pd.Series of z score
 
         long_entry = z < -entry # boolean pd.Series
         short_entry = z > entry
         flat_exit = z.abs() < exit
-        print(f'long_entry:{long_entry}') 
-        print(type(long_entry))
+        
 
         pos = np.where(flat_exit, 0, np.nan)
         pos = np.where(long_entry, 1, pos)
@@ -63,36 +71,39 @@ class MRVectorBacktest():
 
     def score(self,pos: pd.Series):
         '''
-        Takes in positions vector and output scoring metrics   #Make this  ahelper function??
+        Takes in positions vector and output scoring metrics
         '''
         returns = self.data['return']
         strat = (pos * returns).copy()
-        #print(f'strat:{strat}')
+        
 
-        cumrets = returns.cumsum().apply(np.exp) 
-        equity = strat.cumsum().apply(np.exp)
+        creturns = returns.cumsum().apply(np.exp) 
+        cstrategy = strat.cumsum().apply(np.exp)
 
-        self.data['cumrets'] = cumrets
-        self.data['equity'] = equity
+        self.data['creturns'] = creturns
+        self.data['cstrategy'] = cstrategy
 
         mean = strat.mean() * self.ann
         vol = strat.std() * np.sqrt(self.ann) + 1e-16
 
         sharpe = mean/vol
         
-        crets = cumrets.iloc[-1]
-        cstrat = equity.iloc[-1]
-        cagr = equity.iloc[-1] ** (self.ann/max(len(equity),1)) -1
+        crets = float(creturns.iloc[-1])
+        cstrat = float(cstrategy.iloc[-1])
+        cagr = float(cstrategy.iloc[-1] ** (self.ann/max(len(cstrategy),1)) -1)
+        alpha_ret = (cstrat - 1) - (crets - 1)
 
-        return {"sharpe":float(sharpe),                    
-                "cagr": float(cagr),
-                "cstrat":float(cstrat),
-                "crets":float(crets)
-                }
+        return {
+        "sharpe": float(sharpe),
+        "cagr": f"{cagr:.2%}",
+        "cstrat": f"{(cstrat - 1):.2%}",
+        "crets": f"{(crets - 1):.2%}",
+        "alpha": f"{alpha_ret:.2%}"
+        }
                     
     def run_strategy(self): ## single run of backtest
 
-        pos = self.build_positions(self.entry,self.exit,self.window)
+        pos = self.build_positions(entry = self.entry,exit = self.exit,window = self.window)
         self.results = self.score(pos) | {'params':{'entry': self.entry, 'exit': self.exit, 'window':self.window}} #| is dict union/merge operator
 
         return self.results
@@ -103,19 +114,9 @@ class MRVectorBacktest():
         '''
         if self.results is None:
             print('No results to plot yet. Run a strategy.')
+            return
         title = f"{self.symbol} | window: {self.window} | entry_condition: {self.entry} | exit_condition: {self.exit} "
-        pd.DataFrame(self.data[['cumrets', 'equity']]).plot(title = title, figsize = (10,6))
+        pd.DataFrame(self.data[['creturns', 'cstrategy']]).plot(title = title, figsize = (10,6))
         plt.show()
 
 
-#-------------------------test-------------#
-symbol = 'EURUSD=X'
-start = '2023-12-01'
-end = '2025-06-30'
-P = MRVectorBacktest(symbol,start, end)
-P.get_data()
-P.build_positions(0.9,0.5,25)
-P.run_strategy()
-P.results
-P.plot_results()
-P.data
